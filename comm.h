@@ -11,6 +11,7 @@
 #define MAX_MTU 1500
 #else
 #define MAX_MTU 65536
+//#define MAX_MTU 3072
 #endif
 
 #define MAX_OVERHEAD 128
@@ -165,19 +166,72 @@ int recv_bytes(int socket, char *op_val, long no_bytes)
 	return 0;
 }
 
+int get_file_size( long *file_size, char *file_name)
+{
+	int err = 0;
+	FILE *fp = NULL;
+	char *buf = NULL;
+	long bytes_read;
+	if ( (fp = fopen(file_name, "rb")) == NULL)
+	{
+		fprintf(stderr, "%s:%d:: ERROR! Cannot open file! socket:%d, file_name:%s\n", __func__, __LINE__, socket, file_name);
+		return -2;
+	}
 
-int send_file(int socket, char *file_name)
+	buf = malloc(MAX_SEND);
+	if ( buf == NULL )
+	{
+		fprintf(stderr, "%s:%d:: Cannot allocate space!\n", __func__, __LINE__);
+		goto clean_up;
+	}
+	while ( (bytes_read = fread(buf, 1, MAX_SEND, fp)) != 0 )
+	{
+		printf("Bytes read:%lu\n", bytes_read);//dbg
+		*file_size += bytes_read;
+	}
+	if ( feof(fp) )
+	{
+		printf("End of file reached!\n");
+	}
+	else
+	{
+		printf("End of file NOT reached!\n");
+	}
+	printf("Bytes read(last unsuccessfull attempt):%lu\n", bytes_read);//dbg
+
+	err = 0;
+clean_up:
+	if ( buf )
+	{
+		free(buf);
+	}
+	if ( fp )
+	{
+		fclose(fp);
+	}
+	return err;
+}
+
+int send_file(int socket, char *file_name, char *context)
 {
 	FILE *fp = NULL;
 	int err;
 	long bytes_read = 0;
 	char *buf = NULL;
+	long actual_file_size = 0;
 
 	if ( (socket < 0) || (file_name == NULL) )
 	{
 		fprintf(stderr, "%s:%d:: ERROR! Bad arguments passed! socket:%d, file_name:%s\n", __func__, __LINE__, socket, file_name);
 		return -1;
 	}
+
+	if (get_file_size(&actual_file_size, file_name)!=0)
+	{
+		fprintf(stderr, "%s:%d:: ERROR in file size!\n", __func__, __LINE__);
+		return -1;
+	}
+	printf("[%s] Actual file size: %ld for file %s\n", context, actual_file_size, file_name);
 
 	if ( (fp = fopen(file_name, "rb")) == NULL)
 	{
@@ -186,17 +240,17 @@ int send_file(int socket, char *file_name)
 	}
 	//Get file size
 	long file_sz = 0;
-	if ( (err = fseek(fp, 0, SEEK_END)) != 0)
+	if ( (err = fseeko(fp, 0, SEEK_END)) != 0)
 	{
 		fprintf(stderr, "%s:%d:: ERROR:%d seeking the file pointer! errno:%u\n", __func__, __LINE__, err, errno);
 		goto cleanup;
 	}
-	if ( (file_sz = ftell(fp)) == -1)
+	if ( (file_sz = ftello(fp)) == -1)
 	{
 		fprintf(stderr, "%s:%d:: ERROR:%d telling the file pointer! errno:%u\n", __func__, __LINE__, err, errno);
 		goto cleanup;
 	}
-	printf("File size: %ld for file %s\n", file_sz, file_name);
+	printf("[%s] File size: %ld for file %s\n", context, file_sz, file_name);
 
 	//send the file size in long
 	if ( (err = send_long(socket, file_sz)) != 0 )
@@ -219,6 +273,7 @@ int send_file(int socket, char *file_name)
 		goto cleanup;
 	}
 
+	int iter = 0;
 	while ( (bytes_read = fread(buf, 1, MAX_SEND, fp)) != 0 )
 	{
 		if ( (err = send_bytes(socket, buf, bytes_read)) != 0 )
@@ -226,7 +281,9 @@ int send_file(int socket, char *file_name)
 			fprintf(stderr, "%s:%d:: ERROR!!! Cannot send bytes, err:%d\n", __func__, __LINE__, err);
 			goto cleanup;
 		}
+		iter++;
 	}
+	printf("[%s] File %s transferred in %d iterations\n", context, file_name, iter);
 
 
 cleanup:
@@ -240,7 +297,7 @@ cleanup:
 	}
 }
 
-int recv_file(int socket, char *file_name)
+int recv_file(int socket, char *file_name, char *context)
 {
 	FILE *fp = NULL;
 	int err, i;
@@ -265,7 +322,7 @@ int recv_file(int socket, char *file_name)
 		goto cleanup;
 	}
 
-	printf("Size of file received:%ld\n", file_sz);
+	printf("[%s] Size of file to receive:%ld\n", context, file_sz);
 
 	buf = malloc(MAX_SEND);
 	if ( buf == NULL )
@@ -276,8 +333,8 @@ int recv_file(int socket, char *file_name)
 	}
 
 	long n = (long)ceil(((double)file_sz)/((double)MAX_SEND));
-	printf("<s> no. of iterations to transfer file:%lu\n", n);
-	printf("<s> file_sz:%lu, max. msg. size:%lu, last iter. bytes:%lu\n", file_sz, MAX_SEND, (file_sz % MAX_SEND));
+	printf("[%s] no. of iterations to transfer file:%lu\n", context, n);
+	printf("[%s] file_sz:%lu, max. msg. size:%lu, last iter. bytes:%lu\n", context, file_sz, MAX_SEND, (file_sz % MAX_SEND));
 
 	for( i=0; i<n; i++ )
 	{
@@ -300,6 +357,7 @@ int recv_file(int socket, char *file_name)
 			}
 	}
 
+	printf("[%s] file received in iter.:%d\n", context, i);
 	err = 0;
 cleanup:
 	if ( fp )

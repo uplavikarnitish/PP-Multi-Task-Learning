@@ -79,7 +79,7 @@ int main(int argc, char const *argv[])
 //	printf("Hello message sent\n");
 //	valread = read( sock , buffer, 1024);
 //	printf("%s\n",buffer );
-	if ( (err = send_file(sock, file_name)) != 0 )
+	if ( (err = send_file(sock, file_name, (char *)argv[0])) != 0 )
 	{
 		fprintf(stderr, "%s:%d:: ERROR! Cannot send file:%s!\n", __func__, __LINE__, file_name);
 		return -3;
