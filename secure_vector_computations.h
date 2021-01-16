@@ -2256,6 +2256,7 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 
 	memset(l_prime_full_file_name, 0, sizeof(l_prime_full_file_name));
 	strcpy(l_prime_full_file_name, working_dir);
+	mpz_init(e_alpha);
 
 	if ( role == BOB )
 	{
@@ -2446,19 +2447,19 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 			}
 
 
-			//debug - start - check if there is a 0 or 1 for L_i
-			mpz_set(temp, L_i);
-			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
-			decrypt(temp);
-			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
-			long int L_i_decr = mpz_get_si(temp);
-			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
-			if ( (L_i_decr == 0) || (L_i_decr == 1) )
-			{
-				printf("[./s1] SUCCESS - FOUND!!! L_i_decr:%ld at i:%ld\n", L_i_decr, i);
-			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
-			}
-			//debug - stop - check if there is a 0 or 1 for L_i
+			////debug - start - check if there is a 0 or 1 for L_i
+			//mpz_set(temp, L_i);
+			////fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			//decrypt(temp);
+			////fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			//long int L_i_decr = mpz_get_si(temp);
+			////fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			//if ( (L_i_decr == 0) || (L_i_decr == 1) )
+			//{
+			//	printf("[./s1] SUCCESS - FOUND!!! L_i_decr:%ld at i:%ld\n", L_i_decr, i);
+			////fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			//}
+			////debug - stop - check if there is a 0 or 1 for L_i
 			
 		}
 		//close the file to send
@@ -2486,7 +2487,30 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 			goto clean_up;
 		}
 
-
+		//2.4 Accept e_alpha from client
+		if ( (err = recv_mpz(e_alpha, socket)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! ALICE Cannot receive Y! err = %d\n", err);
+			goto clean_up;
+		}
+		//gmp_printf("[./s1] Received E(alpha):%Zd\n", e_alpha);//dbg
+		//3.2. Compute E(u>v) = [(1-F)*E(alpha)] + [F*(E(1)*E(alpha)^{N-1})]
+		if ( F == 0 )
+		{
+			//E(alpha) is solution
+			mpz_set(e_s, e_alpha);
+		}
+		else
+		{
+			//E(1)*[E(alpha)^{N-1}]
+			//compute E(alpha)^{N-1}
+			mpz_powm( e_alpha, e_alpha, n_minus_1, n_square );
+			//compute E(1)
+			encrypt(temp, 1);
+			//obtain E(1)*[E(alpha)^{N-1}] by product
+			prod_cipher_paillier(e_s, temp, e_alpha);//mod with n_square taken care of in function
+		}
+		err = 0;
 		//fprintf(stderr, "%s:%d HERE!\n", __func__, __LINE__);
 
 	}
@@ -2495,7 +2519,6 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 		//s2
 
 
-		mpz_init(e_alpha);
 		if ( (err = append_file_name_to_directory(l_prime_full_file_name, sizeof(l_prime_full_file_name), L_PRIME_RECVD_F_NAME)) != 0 )
 		{
 			fprintf(stderr, "%s:%d:: ERROR! appending err:%d\n", __func__, __LINE__, err);
@@ -2520,7 +2543,14 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 			goto clean_up;
 		}
 
-		
+		//2.4. send e_alpha to S1/Bob
+		if ( (err = send_mpz(e_alpha, socket)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! ALICE Cannot send alpha! err = %d\n", err);
+			goto clean_up;
+		}
+		//gmp_printf("[./s2] Sent E(alpha):%Zd\n", e_alpha);//dbg
+		err = 0;
 		printf("[./s2] max_no_bits:%ld\n", max_no_bits);
 
 	}
@@ -2529,6 +2559,10 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 clean_up:
 
 		//fprintf(stderr, "%s:%d HERE!\n", __func__, __LINE__);
+	if ( e_alpha )
+	{
+		mpz_clear(e_alpha);
+	}
 	if ( role == BOB )
 	{
 		if ( u_i )
@@ -2586,10 +2620,6 @@ clean_up:
 	}
 	else if ( role == ALICE )
 	{
-		if ( e_alpha )
-		{
-			mpz_clear(e_alpha);
-		}
 		
 	}
 	return err;
