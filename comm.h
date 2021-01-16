@@ -20,6 +20,7 @@
 
 typedef enum _serv_types{
 	ENC_LSB,
+	OSC,
 	TERMINATE
 }serv_types;
 

@@ -435,11 +435,13 @@ int main(int argc, char const *argv[])
 	}
 	printf("[%s] Computed norm 2!\n", argv[0]);
 
+	//TODO: Remove auto calculation of max_no_bits from n
 	if ( (err = get_n_size_in_bits(&max_no_bits)) != 0 )
 	{
 		fprintf(stderr, "%s:%d:: ERROR! return:%d\n", __func__, __LINE__, err);
 		goto clean_up;
 	}
+	//max_no_bits = 20;//TODO: make this as a parameter
 
 	printf("[%s] Max. no. of bits (based on n): %ld!\n", argv[0], max_no_bits);
 
@@ -487,6 +489,7 @@ int main(int argc, char const *argv[])
 	printf("[%s] Reversed the dec. bit encr. successfully!\n", argv[0]);//dbg
 	//Now generate v
 	long v = rand() % 128;//TODO: remove mod
+	v = (v * ((long)pow(-1, v))) % 128;
 	if ( v < 0 )
 	{
 		v = v * (-1);
@@ -519,7 +522,7 @@ int main(int argc, char const *argv[])
 	
 	mpz_t e_s;
 	mpz_init(e_s);
-	if ( (err = sc_optimized(e_s, op_encr_dec_bits_file_name, v_file_name, max_no_bits, BOB))!=0 )
+	if ( (err = sc_optimized(e_s, op_encr_dec_bits_file_name, v_file_name, max_no_bits, working_dir, s1_s2_socket, BOB))!=0 )
 	{
 		fprintf(stderr, "%s:%d:: ERROR! sc_optimized(), err:%d\n", __func__, __LINE__, err);
 		goto clean_up;

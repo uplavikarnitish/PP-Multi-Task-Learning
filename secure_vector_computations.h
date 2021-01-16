@@ -24,8 +24,8 @@
 #define MAX_DIGITS_IN_NO KEY_SIZE_BINARY*4
 #define ALICE_ROLE 0
 #define BOB_ROLE 1
-#define	L_PRIME_F_NAME = "L_prime.dat"
-#define	L_PRIME_RECVD_F_NAME = "L_prime_recvd.dat"
+#define	L_PRIME_F_NAME "L_prime.dat"
+#define	L_PRIME_RECVD_F_NAME "L_prime_recvd.dat"
 typedef enum _roles{ALICE, BOB}roles;
 
 //Use this when storing mpz's value in string with base 10 form, instead
@@ -2162,10 +2162,81 @@ clean_up:
 	return err;
 }
 
+/*
+Sets E(-1) as e_alpha if function cannot be evaluated, this should never happen ideally, expected E(1) or E(0).
+Returns 0 on success and -ve on failure.
+*/
+int get_e_alpha_from_L_prime_contents(mpz_t e_alpha, char *source_file, long lines_exp)
+{
+	FILE *fp_s, *fp_d;
+	int err = 0;
+	long num_read = 0;
+	mpz_t L_prime_i;
+	int success_eval = 0;
+
+
+	if ( (fp_s = fopen(source_file, "r"))==NULL )
+	{
+		fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file:%s!\n", __func__, __LINE__, source_file);
+		err = -1;
+		goto clean_up;
+	}
+
+	if ( e_alpha == NULL )
+	{
+		fprintf(stderr, "%s:%d:: ERROR!!! Bad argument passed! e_alpha == NULL!\n", __func__, __LINE__);
+		err = -3;
+		goto clean_up;
+	}
+	mpz_init(L_prime_i);
+	mpz_set_si(e_alpha, -1);//IMPORTANT: note the signed part
+	encrypt_big_num(e_alpha, e_alpha);//IMP: E(-1)
+	success_eval = 0;
+	while ( (err = gmp_fscanf(fp_s, "%Zd\n", L_prime_i)) > 0 )
+	{
+		num_read++;
+		//2.1
+		decrypt(L_prime_i);
+		//2.3.
+		long L_prime_i_long = mpz_get_si (L_prime_i); 
+		if ( (L_prime_i_long == 1) || (L_prime_i_long == 0) )
+		{
+			printf("[./s2] SUCCESS - found result at position(from left - 1, 2, ...):%ld!\n", num_read);//dbg
+			//alpha <- M_i
+			mpz_set_si(e_alpha, L_prime_i_long);
+			//compute E(alpha)
+			encrypt_big_num(e_alpha, e_alpha);
+			//Evaluation succeeded
+			success_eval = 1;
+			break;//Able to successfully evaluate
+		}
+
+	}
+	printf("[./s2] Total exp. numbers:%ld, numbers read:%ld, success in eval:%d!\n", lines_exp, num_read, success_eval);
+	if ( success_eval != 1 )
+	{
+		fprintf(stderr, "%s:%d:: Cannot successfully find the output! No M_i == 0 OR 1, lines_exp:%ld, lines_eval:%ld\n", __func__, __LINE__, lines_exp, num_read);
+		err = -5;
+		goto clean_up;
+	}
+	err = 0;
+clean_up:
+
+	if ( L_prime_i )
+	{
+		mpz_clear(L_prime_i);
+	}
+	if ( fp_s )
+	{
+		fclose(fp_s);
+	}
+	return err;
+}
+
 int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name, long max_no_bits, char *working_dir, int socket, roles role)
 {
 	int err = 0;
-	FILE *fp_u, *fp_v;
+	FILE *fp_u, *fp_v, *fp_l;
 	long i;
 	char *l_prime_file_name;
 	char l_prime_full_file_name[1024];
@@ -2179,6 +2250,8 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 	mpz_t H_i_1;
 	mpz_t K_i;
 	mpz_t L_i;
+	mpz_t e_alpha;
+	char *delimiter;
 	
 
 	memset(l_prime_full_file_name, 0, sizeof(l_prime_full_file_name));
@@ -2202,6 +2275,7 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 		mpz_init(H_i);
 		mpz_init(H_i_1);
 		mpz_init(K_i);
+		mpz_init(L_i);
 		//s1
 		if ( (fp_u = fopen(ip_encr_dec_bits_file_name, "r"))==NULL )
 		{
@@ -2217,26 +2291,38 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 			goto clean_up;
 		}
 
+		if ( (fp_l = fopen(l_prime_full_file_name, "w"))==NULL )
+		{
+			fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file:%s!", __func__, __LINE__, l_prime_full_file_name);
+			err = -3;
+			goto clean_up;
+		}
+
 		//1.1. Randomly choose F from {0, 1}
 		srand(time(NULL));
 		int F = ((int)rand()) % 2;
 		printf("[./s0] F:%d\n", F);//dbg
 
+		//fprintf(stderr, "%s:%d HERE!\n", __func__, __LINE__);
+
 		//1.2
 		for ( i = 1; i <= max_no_bits; i++ )
 		{
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//read [u_i]
 			if ( (err = gmp_fscanf(fp_u, "%Zd\n", u_i)) <= 0 )
 			{
 				fprintf(stderr, "%s:%d:: ERROR!!! Cannot read file:%s! i:%ld, err:%d, errno:%d", __func__, __LINE__, ip_encr_dec_bits_file_name, i, err, errno);
 				goto clean_up;
 			}
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//read v_i
 			if ( (err = fscanf(fp_v, "%d\n", &v_i)) <= 0 )
 			{
 				fprintf(stderr, "%s:%d:: ERROR!!! Cannot read file:%s! i:%ld, err:%d, errno:%d", __func__, __LINE__, v_file_name, i, err, errno);
 				goto clean_up;
 			}
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//debug - start
 			//if ( (i==1) || (i==(max_no_bits-1)) || (i==max_no_bits) )
 			//{
@@ -2253,15 +2339,18 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 				{
 					//1.2.a.ii.A.
 					mpz_set(W_i, u_i);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 				}
 				else
 				{
 					//1.2.a.iii.A
 					//compute W_i<-E(0)
 					encrypt(W_i, 0);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 				}
 				//1.2.a.iv.
 				mpz_set(G_i, u_i);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			}
 			else
 			{
@@ -2271,6 +2360,7 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 					//1.2.b.ii.A.
 					//W_i <- E(0)
 					encrypt(W_i, 0);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 				}
 				else
 				{
@@ -2278,68 +2368,171 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 					//compute W_i<-E(1)*E(u_i)^{N-1}
 					//compute temp<-inv(u_i)
 					mpz_powm(temp, u_i, n_minus_1, n_square);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 					//compute E(1)
 					encrypt(e_1, 1);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 					//compute W_i
 					prod_cipher_paillier(W_i, e_1, temp);//mod n_square taken care of
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 				}
 				//1.2.b.iv.
 				//compute G_i
 				//get E(1)
 				encrypt(e_1, 1);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 				//compute temp<-inv(u_i)
 				mpz_powm(temp, u_i, n_minus_1, n_square);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 				//compute G_i
 				prod_cipher_paillier(G_i, e_1, temp);//mod n_square taken care of
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			}
 
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//1.2.c. Compute H_i
 			if ( i == 1 )
 			{
 				//H_0 == E(0)
 				encrypt(H_i_1, 0);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			}
 			//r<-random in Z_n
 			get_random_r();
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//comp H_i <- H_i_1^r
 			mpz_powm(H_i, H_i_1, r, n_square);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//comp H_i <- H_i_1^r * G_i
 			prod_cipher_paillier(H_i, H_i, G_i);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//compute H_i_1 as H_i for next iteration
 			mpz_set(H_i_1, H_i);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 
 			//1.2.d. 
 			//compute temp <- -1
 			mpz_set_si(temp, -1);//NOTE TODO: note the si i.e. signed int and not ui i.e. unsigned int
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//compute temp <- -1 mod n i.e. -1 in Z_n
 			mpz_mod(temp, temp, n);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//compute temp <- E(-1)
 			encrypt_big_num(temp, temp);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 			//compute kappa_i <- E(-1)*H_i
 			prod_cipher_paillier(K_i, temp, H_i);//mod n^2 handled by func.
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
 
 			//1.2.e.
 			//compute L_i
 			prod_cipher_paillier(L_i, W_i, K_i);//mod n^2 handled by func.
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+
+			//TODO: write L_i to file
+			if ( i != 1 )
+			{
+				delimiter = "\n";
+			}
+			else
+			{
+				//i==1
+				delimiter = "";
+			}
+			if ( (err = gmp_fprintf(fp_l, "%s%Zd", delimiter, L_i))<0 )
+			{
+				fprintf(stderr, "%s:%d ERROR!!! Cannot write to file:%s! i:%ld\n", __func__, __LINE__, l_prime_full_file_name, i);
+				goto clean_up;
+			}
 
 
-
+			//debug - start - check if there is a 0 or 1 for L_i
+			mpz_set(temp, L_i);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			decrypt(temp);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			long int L_i_decr = mpz_get_si(temp);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			if ( (L_i_decr == 0) || (L_i_decr == 1) )
+			{
+				printf("[./s1] SUCCESS - FOUND!!! L_i_decr:%ld at i:%ld\n", L_i_decr, i);
+			//fprintf(stderr, "%s:%d HERE! i:%ld\n", __func__, __LINE__, i);//dbg
+			}
+			//debug - stop - check if there is a 0 or 1 for L_i
 			
 		}
+		#if 0
+		//close the file to send
+		fclose(fp_l);
+		fp_l = NULL;
+		//TODO: Add code to shift the Ls in file -START
+		//TODO: Add code to shift the Ls in file -STOP
+
+		//Send service request to S2 to be ready to accept L_prime file and execute step 2
+		if ( (err = send_service_reqs(socket, OSC)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Bob Cannot send service req.s! err = %d\n", err);
+			goto clean_up;
+		}
+
+		if ( (err = send_long(socket, max_no_bits)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Bob Cannot send max_no_bits:%lu as long! err = %d\n", max_no_bits, err);
+			goto clean_up;
+		}
+
+		if ( (err = send_file(socket, l_prime_full_file_name, "./s1")) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Cannot send file:%s!\n", __func__, __LINE__, l_prime_full_file_name);
+			goto clean_up;
+		}
+
+		#endif
+
+		//fprintf(stderr, "%s:%d HERE!\n", __func__, __LINE__);
 
 	}
 	else if ( role == ALICE )
 	{
 		//s2
+
+#if 0
+
+		mpz_init(e_alpha);
 		if ( (err = append_file_name_to_directory(l_prime_full_file_name, sizeof(l_prime_full_file_name), L_PRIME_RECVD_F_NAME)) != 0 )
 		{
 			fprintf(stderr, "%s:%d:: ERROR! appending err:%d\n", __func__, __LINE__, err);
 			goto clean_up;
 		}
+
+		if ( (err = recv_long(socket, &max_no_bits)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Alice Cannot receive max_no_bits as long! err = %d\n", err);
+			goto clean_up;
+		}
+
+		if ( (err = recv_file(socket, l_prime_full_file_name, "./s2")) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Cannot receive file:%s!\n", __func__, __LINE__, l_prime_full_file_name);
+			goto clean_up;
+		}
+
+		if ( (err = get_e_alpha_from_L_prime_contents(e_alpha, l_prime_full_file_name, max_no_bits)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Unsuccessful evaluation: get_e_alpha_from_L_prime_contents(), err:%d!\n", __func__, __LINE__, err);
+			goto clean_up;
+		}
+
+		
+		printf("[./s2] max_no_bits:%ld\n", max_no_bits);
+		#endif
+
 	}
 	err = 0;
+		//fprintf(stderr, "%s:%d HERE!\n", __func__, __LINE__);
 clean_up:
 
+		//fprintf(stderr, "%s:%d HERE!\n", __func__, __LINE__);
 	if ( role == BOB )
 	{
 		if ( u_i )
@@ -2390,9 +2583,17 @@ clean_up:
 		{
 			fclose(fp_v);
 		}
+		if ( fp_l )
+		{
+			fclose(fp_l);
+		}
 	}
 	else if ( role == ALICE )
 	{
+		if ( e_alpha )
+		{
+			mpz_clear(e_alpha);
+		}
 		
 	}
 	return err;

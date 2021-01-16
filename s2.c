@@ -53,8 +53,18 @@ int main(int argc, char const *argv[])
 				//printf("[%s] Service request:%lu - ENC_LSB received!\n", argv[0], serv_req);
 				if ( (err = encrypted_lsb(NULL, NULL, -1, ALICE, s1_s2_socket)) != 0)
 				{
-					fprintf(stderr, "%s:%d:: ERROR!!! in encrypted_lsb: %d\n", __func__, __LINE__, err);
+					fprintf(stderr, "%s:%d:: ERROR!!! in encrypted_lsb(): %d\n", __func__, __LINE__, err);
 					err = -3;
+					goto clean_up;
+				}
+			break;
+
+			case OSC:
+				printf("[%s] Service request:%lu - OSC received!\n", argv[0], serv_req);
+				if ( (err = sc_optimized(NULL, NULL, NULL, -1, working_dir, s1_s2_socket, ALICE)) != 0)
+				{
+					fprintf(stderr, "%s:%d:: ERROR!!! in sc_optimized(): %d\n", __func__, __LINE__, err);
+					err = -4;
 					goto clean_up;
 				}
 			break;
