@@ -26,10 +26,14 @@
 #define BOB_ROLE 1
 typedef enum _roles{ALICE, BOB}roles;
 
+//Use this when storing mpz's value in string with base 10 form, instead
+//of repeated malloc and callocs
+char mpz_buffer[MAX_DIGITS_IN_NO];
 //global encrypt-decryption variables
 mpz_t big_temp;
 mpz_t n;
 mpz_t n_plus_1;        //n+1, the public key
+mpz_t n_minus_1;        //n-1, SBD required
 mpz_t n_square;        //n^2
 mpz_t r;
 mpz_t r_pow_n;         //r^n mod n^2
@@ -82,6 +86,11 @@ void get_random_r_given_modulo( mpz_t random_no, mpz_t modulo )
 	}while(mpz_cmp_ui(random_no, 0) == 0);
 }
 
+int prod_cipher_paillier(mpz_t rop, const mpz_t op1, const mpz_t op2)
+{
+	mpz_mul(rop, op1, op2);
+	mpz_mod(rop, rop, n_square);
+}
 int encrypt_vec_to_file( int vsizelocal, const char * input_file_name, const char * output_file_name, const char * key_file_name)
 {
 	int input_size = 0, i, temp;
@@ -1422,6 +1431,7 @@ int initialize_variables()
 	mpz_init(big_temp);
 	mpz_init(n);
 	mpz_init(n_plus_1);
+	mpz_init(n_minus_1);
 	mpz_init(n_square);      
 	mpz_init(r);
 	mpz_init(r_pow_n);       
@@ -1436,6 +1446,7 @@ void clear_serv(){
 	mpz_clear(big_temp);
 	mpz_clear(n);
 	mpz_clear(n_plus_1);
+	mpz_clear(n_minus_1);
 	mpz_clear(n_square);
 	mpz_clear(r);
 	mpz_clear(r_pow_n);
@@ -1446,6 +1457,7 @@ int compute_nplus1_nsquare()
 {
 	mpz_add_ui(n_plus_1, n, 1);
 	mpz_pow_ui(n_square, n, 2);
+	mpz_sub_ui(n_minus_1, n, 1);//SBD specific only
 	return 0;
 }
 
@@ -1526,6 +1538,7 @@ void clear(){
 	mpz_clear(big_temp);
 	mpz_clear(n);
 	mpz_clear(n_plus_1);
+	mpz_clear(n_minus_1);
 	mpz_clear(n_square);
 	mpz_clear(r);
 	mpz_clear(r_pow_n);
@@ -1856,23 +1869,259 @@ int get_n_size_in_bits(long *n_bit_sz)
 	return 0;
 }
 
+int send_mpz(mpz_t val, int socket)
+{
+	int err = 0, no_bytes;
+
+	////debug - start here
+	//FILE *fp = NULL;
+	//if ( (fp = fopen("/home/nuplavikar/Downloads/deletethis/Y_Bob.dat", "a"))==NULL )
+	//{
+	//	fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file! errno:%d\n", __func__, __LINE__, errno);
+	//	goto clean_up;
+	//}
+	//if (  (err = gmp_fprintf(fp, "\n%Zd", val))<0)
+	//{
+	//	fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file!\n", __func__, __LINE__);
+	//	goto clean_up;
+	//}
+	//fclose(fp);
+	////debug - end here
+
+	if ( (no_bytes = gmp_snprintf(mpz_buffer, sizeof(mpz_buffer), "%Zd", val)) < 0)
+	{
+		fprintf(stderr, "%s:%d:: Error!!! snprintf():%d\n", __func__, __LINE__, no_bytes);
+		err = no_bytes;
+		goto clean_up;
+	}
+	if ( no_bytes >= sizeof(mpz_buffer) )
+	{
+		fprintf(stderr, "%s:%d:: Error!!! Overflow in gmp_snprintf():%d bytes to send, but can send:%d only!\n", __func__, __LINE__, no_bytes, sizeof(mpz_buffer));
+		err = -1;
+		goto clean_up;
+	}
+
+	//Also send the \0 byte
+	no_bytes++;
+
+	//send no_bytes to transfer
+	if ( (err = send_long(socket, no_bytes)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! err=%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+	//send actual bytes
+	if ( (err = send_bytes(socket, mpz_buffer, no_bytes)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR!!! Cannot send bytes, err:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+
+	err = 0;
+clean_up:
+	return err;
+}
+
+int recv_mpz(mpz_t val, int socket)
+{
+	int err = 0;
+	long no_bytes;
+	/*if ( (no_bytes = gmp_snprintf(mpz_buffer, sizeof(mpz_buffer), "%Zd", val)) < 0)
+	{
+		fprintf(stderr, "%s:%d:: Error!!! snprintf():%d\n", __func__, __LINE__, no_bytes);
+		err = no_bytes;
+		goto clean_up;
+	}
+	if ( no_bytes >= sizeof(mpz_buffer) )
+	{
+		fprintf(stderr, "%s:%d:: Error!!! Overflow in gmp_snprintf():%d bytes to send, but can send:%d only!\n", __func__, __LINE__, no_bytes, sizeof(mpz_buffer));
+		err = -1;
+		goto clean_up;
+	}*/
+
+	//Also send the \0 byte
+	no_bytes++;
+
+	//send no_bytes to transfer
+	if ( (err = recv_long(socket, &no_bytes)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! err=%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+	//send actual bytes
+	if ( (err = recv_bytes(socket, mpz_buffer, no_bytes)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR!!! Cannot send bytes, err:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+	mpz_set_str(val, mpz_buffer, 10);
+
+//	//debug - start here
+//	FILE *fp = NULL;
+//	if ( (fp = fopen("/home/nuplavikar/Downloads/deletethis/Y_Alice.dat", "a"))==NULL )
+//	{
+//		fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file! errno:%d\n", __func__, __LINE__, errno);
+//		goto clean_up;
+//	}
+//	if (  (err = gmp_fprintf(fp, "\n%Zd", val))<0)
+//	{
+//		fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file!\n", __func__, __LINE__);
+//		goto clean_up;
+//	}
+//	fclose(fp);
+//	//debug - end here
+
+
+	err = 0;
+clean_up:
+	return err;
+}
+
 /*
 Alice role = 0,
 Bob role = 1
 */
-int encrypted_lsb( mpz_t e_x_i, mpz_t T, long i, roles role )
+int encrypted_lsb( mpz_t e_x_i, mpz_t T, long i, roles role, int socket )
 {
+	int err = 0;
+	mpz_t rand, Y, e_rand, alpha;
+
+	mpz_init(Y);
+	mpz_init(alpha);
 	if ( role == ALICE )
 	{
+
+		//2.a. - Accept Y from S1/BOB
+		if ( (err = recv_mpz(Y, socket)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! ALICE Cannot receive Y! err = %d\n", err);
+			goto clean_up;
+		}
+		//printf("[./s2] Accepted Y from S1/BOB!\n");dbg
+
+		//2.b. - Y <- D(Y)
+		decrypt(Y);
+		//printf("[./s2] Decrypted Y!\n");dbg
+
+		//2.c. - Calculate alpha
+		mpz_mod_ui(Y, Y, 2);
+		if ( mpz_get_ui(Y) == 0 )
+		{
+			//even
+			encrypt(alpha, 0);
+		}
+		else
+		{
+			//odd
+			encrypt(alpha, 1);
+		}
+
+		//2.d - Send alpha to S1/Bob
+		if ( (err = send_mpz(alpha, socket)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! ALICE Cannot send alpha! err = %d\n", err);
+			goto clean_up;
+		}
+
 	}
 	else if ( role == BOB )
-	{}
+	{
+		mpz_init(rand);
+		mpz_init(e_rand);
+
+		//1.a. Compute Y<-T*E(r) mod N^2, r in Z_N
+		//get r
+		get_random_r_given_modulo(rand, n);
+		//get E(r)
+		encrypt_big_num(e_rand, rand);
+		//compute Y
+		prod_cipher_paillier(Y, T, e_rand);//mod N^2 done in this func.
+		//send request to S2 to start the protocol of encrypted_lsb
+		//on its end, so that he can be ready when we send Y
+		if ( (err = send_service_reqs(socket, ENC_LSB)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Bob Cannot send service req.s! err = %d\n", err);
+			goto clean_up;
+		}
+		//printf("[./s1] sent the sevice req. %ld err:%d\n", i, err);//DBG
+		//Send Y to S2/ALICE
+		if ( (err = send_mpz(Y, socket)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Bob Cannot send Y! err = %d\n", err);
+			goto clean_up;
+		}
+		//printf("[./s1] sent the Y %ld err:%d\n", i, err);//DBG
+		//3.a. Receive alpha from S2/Alice
+		if ( (err = recv_mpz(alpha, socket)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! Bob Cannot receive alpha! err = %d\n", err);
+			goto clean_up;
+		}
+
+		//3.b. compute E(x_i) i.e. e_x_i
+		//Obtain r <- r % 2 to know if odd or even
+		mpz_mod_ui(rand, rand, 2);
+		unsigned long remainder = mpz_get_ui(rand);
+		if ( remainder == 0 )
+		{
+			//even
+			mpz_set(e_x_i, alpha);
+		}
+		else
+		{
+			//odd
+			//compute E(x_i)<-E(1)*alpha^{N-1} mod N^2
+			mpz_t e_one;
+			mpz_init(e_one);
+
+			//compute E(1)
+			encrypt(e_one, 1);
+			//compute alpha^{N-1} i.e. get encr. for flipped bit
+			//of plaintext stored in alpha by S2/Alice
+			//cal. alpha^{N-1} mod N^2
+			mpz_powm(alpha, alpha, n_minus_1, n_square);
+			//compute E(1)*alpha^{N-1} mod N^2
+			prod_cipher_paillier(e_x_i, e_one, alpha);//mod with n_square included
+
+			mpz_clear(e_one);
+
+		}
+
+	}
 	else
 	{
 		fprintf(stderr, "%s:%d:: ERROR! Invalid role provided role:%d, expected"
 		" ALICE:%d or BOB:%d\n", __func__, __LINE__, role, ALICE, BOB);
 		return -1;
 	}
+
+
+	err = 0;
+clean_up:
+
+	if ( Y )
+	{
+		mpz_clear(Y);
+	}
+	if ( alpha )
+	{
+		mpz_clear(alpha);
+	}
+	if ( role == BOB )
+	{
+		if ( rand )
+		{
+			mpz_clear(rand);
+		}
+		if ( e_rand )
+		{
+			mpz_clear(e_rand);
+		}
+	}
+	else if ( role == ALICE )
+	{
+	}
+	return err;
 }
 
 int sbd( char *op_encr_dec_bits_file_name, mpz_t e_x, long m/*max. no. of bits*/, int socket )
@@ -1881,32 +2130,90 @@ int sbd( char *op_encr_dec_bits_file_name, mpz_t e_x, long m/*max. no. of bits*/
 	long i;
 	mpz_t l;
 	mpz_t T;
+	mpz_t e_x_i;
+	mpz_t Z;
+	mpz_t temp;//dbg
+	FILE *fp = NULL;
+	char *delimiter;
 
+	if ( (fp = fopen(op_encr_dec_bits_file_name, "w")) == NULL )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! Cannot open file: %s!\n", __func__, __LINE__, op_encr_dec_bits_file_name);
+		err = -1;
+		goto clean_up;
+	}
+
+	mpz_init(Z);
+	mpz_init(temp);
 	//1: calculate 2^{-1}mod N
 	mpz_init_set_ui(l, 2);
 	mpz_invert(l, l, n);
 	//2: initialize T
 	mpz_init_set(T, e_x);
 
-	if ( (err = send_service_reqs(socket, ENC_LSB)) != 0 )
-	{
-		fprintf(stderr, "%s:%d:: ERROR! Cannot send service req.s! err = %d\n", err);
-		goto clean_up;
-	}
+	//3: for loop
+	mpz_init(e_x_i);
 
-	if ( (err = send_service_reqs(socket, TERMINATE)) != 0 )
-	{
-		fprintf(stderr, "%s:%d:: ERROR! Cannot send service req.s! err = %d\n", err);
-		goto clean_up;
-	}
-	//for ( i=0; i<m; i++ )
+	//if ( (err = send_service_reqs(socket, ENC_LSB)) != 0 )
 	//{
-	//	
+	//	fprintf(stderr, "%s:%d:: ERROR! Cannot send service req.s! err = %d\n", err);
+	//	goto clean_up;
 	//}
+
+	//if ( (err = send_service_reqs(socket, TERMINATE)) != 0 )
+	//{
+	//	fprintf(stderr, "%s:%d:: ERROR! Cannot send service req.s! err = %d\n", err);
+	//	goto clean_up;
+	//}
+	printf("[./s1] e_x:31 rev. bin.: ");//dbg
+	for ( i=0; i<m; i++ )
+	{
+		if ( (err = encrypted_lsb(e_x_i, T, i, BOB, socket))!=0 )
+		{
+			fprintf(stderr, "%s:%d:: encrypted_lsb errored: %d\n",
+			__func__, __LINE__, err);
+			goto clean_up;
+		}
+		//debug - start
+		mpz_set(temp, e_x_i);
+		decrypt(temp);
+		gmp_printf("%Zd", temp);
+		//debug - stop
+		//write the encrypted decomposed (l-i) th bit of 
+		if ( i != (m-1) )
+		{
+			delimiter = "\n";
+		}
+		else
+		{
+			delimiter = "";
+		}
+		if ( (err = gmp_fprintf(fp, "%Zd%s", e_x_i, delimiter)) < 0 )
+		{
+			fprintf(stderr, "%s:%d:: gmp_fprintf() errored: %d\n", 
+			__func__, __LINE__, err);
+			goto clean_up;
+		}
+
+		//5. Compute Z <- T*E(x_i)^{N-1} mod N^2
+		//Compute e_x_i <- e_x_i^{N-1} mod N^2
+		mpz_powm(e_x_i, e_x_i, n_minus_1, n_square);
+		//Compute Z <- T*e_x_i mod N^2
+		prod_cipher_paillier(Z, T, e_x_i);//mod N^2 take care of
+
+		//6. Compute T <- Z^l mod N^2
+		mpz_powm(T, Z, l, n_square);
+	}
+	printf("\n");//dbg
 	
 
 	
+	err = 0;
 clean_up:
+	if ( fp )
+	{
+		fclose(fp);
+	}
 	if ( l )
 	{
 		mpz_clear(l);
@@ -1915,6 +2222,19 @@ clean_up:
 	{
 		mpz_clear(T);
 	}
+	if ( e_x_i )
+	{
+		mpz_clear(e_x_i);
+	}
+	if ( Z )
+	{
+		mpz_clear(Z);
+	}
+	if ( temp )
+	{
+		mpz_clear(temp);
+	}
+	return err;
 }
 
 

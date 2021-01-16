@@ -33,6 +33,8 @@ int main(int argc, char const *argv[])
 	strncpy(working_dir, argv[2], strlen(argv[2])>sizeof(working_dir)?
 	sizeof(working_dir):strlen(argv[2])+1);
 
+	//Read the Paillier variables
+	init();
 	printf("[%s] Waiting for connection request from server S1 ...\n", argv[0]);
 	if ( (s1_s2_socket = create_accept_socket_server(S1_TO_S2_PORT_NO)) < 0 )
 	{
@@ -42,14 +44,19 @@ int main(int argc, char const *argv[])
 	}
 	printf("[%s] Accepted the connection with server S1!\n", argv[0]);
 
-
 	while ( ((err = accept_service_reqs(&serv_req, s1_s2_socket))==0) /*&& 
 			( ((serv_types)serv_req) != TERMINATE)*/ )
 	{
 		switch(serv_req)
 		{
 			case ENC_LSB:
-				printf("[%s] Service request:%lu - ENC_LSB received!\n", argv[0], serv_req);
+				//printf("[%s] Service request:%lu - ENC_LSB received!\n", argv[0], serv_req);
+				if ( (err = encrypted_lsb(NULL, NULL, -1, ALICE, s1_s2_socket)) != 0)
+				{
+					fprintf(stderr, "%s:%d:: ERROR!!! in encrypted_lsb: %d\n", __func__, __LINE__, err);
+					err = -3;
+					goto clean_up;
+				}
 			break;
 
 			case TERMINATE:
@@ -68,6 +75,7 @@ int main(int argc, char const *argv[])
 	}
 	err = 0;
 clean_up:
+	clear();
 
 	return err;
 
