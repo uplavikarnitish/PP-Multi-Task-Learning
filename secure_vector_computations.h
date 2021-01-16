@@ -1869,6 +1869,176 @@ int get_n_size_in_bits(long *n_bit_sz)
 	return 0;
 }
 
+int reverse_file_line_by_line(char *file_name, char *working_dir)
+{
+	char *temp_file_name = "temp_rev.dat", *delimiter;
+	char full_temp_file_name[1024];
+	long file_sz, i, postn_last_no_found = -1;;
+	FILE *fp_r, *fp_w;
+	int err, cur_byte;
+	mpz_t val;
+	long num_read = 0, bytes_written = 0;
+
+	memset(full_temp_file_name, 0, sizeof(full_temp_file_name));
+	//printf("[%s] Calling append to store encr. dec. bits", argv[0]);//dbg
+	strcpy(full_temp_file_name, working_dir);
+
+	//printf("[%s] Calling append to store encr. dec. bits", argv[0]);//dbg
+	if ( (err = append_file_name_to_directory(full_temp_file_name, sizeof(full_temp_file_name), temp_file_name)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! appending err:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+
+	if ( (fp_r = fopen(file_name, "rb")) == NULL )
+	{
+		fprintf(stderr, "%s:%d:: Cannot open file for reading: %s", __func__, __LINE__, file_name);
+		err = -1;
+		goto clean_up;
+	}
+	if ( (fp_w = fopen(full_temp_file_name, "wb")) == NULL )
+	{
+		fprintf(stderr, "%s:%d:: Cannot open file for reading: %s", __func__, __LINE__, full_temp_file_name);
+		err = -2;
+		goto clean_up;
+	}
+
+	if ( (err = get_file_size(&file_sz, file_name)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: Cannot file size: %s", __func__, __LINE__, file_name);
+		err = -3;
+		goto clean_up;
+	}
+
+//	printf("Source file size:%ld\n", file_sz);//dbg
+
+	//if ( (err = fseek(fp_r, -1, SEEK_END)) < 0 )
+	//{
+	//	fprintf(stderr, "%s:%d:: ERROR! Cannot fseek(), err:%d, errno:%d\n", err, errno);
+	//	goto clean_up;
+	//}
+	//printf("ftell:%ld\n", ftell(fp_r));
+	//int last_byte = fgetc(fp_r);
+//	if ( last_byte == EOF )
+//	{
+//		printf("This is EOF:%d\n", last_byte);
+//	}
+//	else
+//	{
+//		printf("This is NOT EOF:%d\n", last_byte);
+//	}
+
+	mpz_init(val);
+	num_read = 0;
+	bytes_written = 0;
+	i = 1;
+	while( i<=file_sz )
+	{
+	//	if ( (err = fseek(fp_r, -i, SEEK_END)) < 0 )
+	//	{
+	//		fprintf(stderr, "%s:%d:: ERROR! Cannot fseek(), err:%d, errno:%d\n", err, errno);
+	//		goto clean_up;
+	//	}
+		//pass the '\n's i.e. delimiter(s) 
+		while ( (i<=file_sz) && 
+			((err = fseek(fp_r, -i, SEEK_END)) >= 0) &&
+			((cur_byte = fgetc(fp_r)) == '\n') )
+		{
+			i++;
+		}
+		if ( err < 0 )
+		{
+			fprintf(stderr, "%s:%d:: fseek() error! i:%d, err:%d, errno:%d\n", __func__, __LINE__, i, err, errno);
+			goto clean_up;
+		}
+		
+		//-i should now point to a non delimiter i.e. a number in this case
+		//go to the start of this number i.e. unless you get a '\n' delimiter
+		while ( (i<=file_sz) && 
+			((err = fseek(fp_r, -i, SEEK_END)) >= 0) &&
+			((cur_byte = fgetc(fp_r)) != '\n') )
+		{
+			i++;
+			//if ( i == file_sz +1) //There is no '\n' at first location in file
+			//{}
+		}
+		if ( err < 0 )
+		{
+			fprintf(stderr, "%s:%d:: fseek() error! i:%d, err:%d, errno:%d\n", __func__, __LINE__, i, err, errno);
+			goto clean_up;
+		}
+
+		//i points to '\n' element
+		if ( i <= file_sz )
+		{
+			//point it to the non '\n' element after the detected '\n'
+			i--;
+		}
+		else if ( i == file_sz + 1 )
+		{
+			//special case, i points to imaginary location
+			//printf("EOF (from beginning) detected at i:%d\n", i);//dbg
+			i--;
+		}
+
+		if( i == postn_last_no_found )
+		{
+			//back to where we read the previous number
+			fprintf(stderr, "ERROR! back to where we read the previous number\n");
+			break;
+		}
+		if ( ((err = fseek(fp_r, -i, SEEK_END)) >= 0) && //Can be commented for optimization
+			(err = gmp_fscanf(fp_r, "%Zd", val)) > 0 )
+		{
+			postn_last_no_found = i;
+			if ( num_read != 0 )
+			{
+				delimiter = "\n";
+			}
+			else
+			{
+				delimiter = "";
+			}
+
+			if ( (err = gmp_fprintf(fp_w, "%s%Zd", delimiter, val)) < 0 )
+			{
+				fprintf(stderr, "%s:%d:: fprintf() error! i:%d, err:%d\n", __func__, __LINE__, i, err);
+				goto clean_up;
+			}
+			bytes_written += err;
+			num_read++;
+			i++;//Important: to get to the preceeding number, currently points to non'\n' need to point to'\n' or first char
+			//printf("Source file size:%ld, numbers found:%ld, bytes written:%ld, i:%ld\n\n", file_sz, num_read, bytes_written, i);
+			if ( i == file_sz )
+			{
+				//we have read till the first number in a reverse order starting from number at end of file to number at the start
+				break;
+			}
+		}
+	}
+
+//	printf("Reverse operation completed successfully\n"
+//			"Source file size:%ld, numbers found:%ld, bytes written:%ld, i:%ld\n\n", file_sz, num_read, bytes_written, i);
+
+	//rename the files such that original is replaced with newly reversed one
+	if ( (rename( full_temp_file_name, file_name )) < 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! Cannot rename/replace the files! err:%d, errno:%d\n", __func__, __LINE__, err, errno);
+		goto clean_up;
+	}
+	err = 0;
+clean_up:
+
+	if ( val )
+	{
+		mpz_clear(val);
+	}
+	if (fp_r)
+		fclose(fp_r);
+	if (fp_w)
+		fclose(fp_w);
+}
+
 int send_mpz(mpz_t val, int socket)
 {
 	int err = 0, no_bytes;
@@ -2132,7 +2302,7 @@ int sbd( char *op_encr_dec_bits_file_name, mpz_t e_x, long m/*max. no. of bits*/
 	mpz_t T;
 	mpz_t e_x_i;
 	mpz_t Z;
-	mpz_t temp;//dbg
+	//mpz_t temp;//dbg
 	FILE *fp = NULL;
 	char *delimiter;
 
@@ -2144,7 +2314,7 @@ int sbd( char *op_encr_dec_bits_file_name, mpz_t e_x, long m/*max. no. of bits*/
 	}
 
 	mpz_init(Z);
-	mpz_init(temp);
+	//mpz_init(temp);//dbg
 	//1: calculate 2^{-1}mod N
 	mpz_init_set_ui(l, 2);
 	mpz_invert(l, l, n);
@@ -2165,7 +2335,7 @@ int sbd( char *op_encr_dec_bits_file_name, mpz_t e_x, long m/*max. no. of bits*/
 	//	fprintf(stderr, "%s:%d:: ERROR! Cannot send service req.s! err = %d\n", err);
 	//	goto clean_up;
 	//}
-	printf("[./s1] e_x:31 rev. bin.: ");//dbg
+	//printf("[./s1] e_x:31 rev. bin.: ");//dbg
 	for ( i=0; i<m; i++ )
 	{
 		if ( (err = encrypted_lsb(e_x_i, T, i, BOB, socket))!=0 )
@@ -2175,9 +2345,9 @@ int sbd( char *op_encr_dec_bits_file_name, mpz_t e_x, long m/*max. no. of bits*/
 			goto clean_up;
 		}
 		//debug - start
-		mpz_set(temp, e_x_i);
-		decrypt(temp);
-		gmp_printf("%Zd", temp);
+		//mpz_set(temp, e_x_i);
+		//decrypt(temp);
+		//gmp_printf("%Zd", temp);
 		//debug - stop
 		//write the encrypted decomposed (l-i) th bit of 
 		if ( i != (m-1) )
@@ -2230,10 +2400,10 @@ clean_up:
 	{
 		mpz_clear(Z);
 	}
-	if ( temp )
-	{
-		mpz_clear(temp);
-	}
+	//if ( temp )
+	//{
+	//	mpz_clear(temp);
+	//}
 	return err;
 }
 

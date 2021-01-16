@@ -6,7 +6,7 @@
 #include <string.h>
 #include <math.h>
 #include <gmp.h>
-#include "comm.h"
+//#include "comm.h"
 #include "ppmtlutils.h"
 #include "secure_vector_computations.h"
 //Assumption - init()|init_serv() has been called earlier before calling this function.
@@ -94,6 +94,8 @@ int compute_encr_norm2(long m, long p, char *cl_recv_file_name, char *op_encr_no
 		count++;
 	}
 
+
+
 	err = 0;
 clean_up:
 	if ( fp )
@@ -115,17 +117,63 @@ clean_up:
 	return err;
 }
 
+/*
+l - no. of bits representation
+*file_name - output bits, stored as lsb first, separated by '\n'
+*/
+int convert_to_bin_write_to_file(long l, long val, char *file_name)
+{
+	int err = 0;
+	FILE *fp;
+	long i;
+	char *separator;
+
+	if ( (fp = fopen(file_name, "w")) == NULL )
+	{
+		fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file:%s!", __func__, __LINE__, file_name);
+		return -1;
+	}
+
+	for ( i=0; i<l; i++ )
+	{
+		if ( i!=0 )
+		{
+			separator = "\n";
+		}
+		else
+		{
+			separator = "";
+		}
+		if ( (err = fprintf(fp, "%s%d", separator, (val%2))) < 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR!!! Cannot write to file:%s!", __func__, __LINE__, file_name);
+			goto clean_up;
+		}
+		val = val / 2;
+	}
+
+	err = 0;
+clean_up:
+	if ( fp )
+	{
+		fclose(fp);
+	}
+	return err;
+}
 int main(int argc, char const *argv[])
 {
 	int /*server_fd,*/ valread, err = 0;
 	char buffer[1024] = {0};
 	char *hello = "Hello from server";
-	int cl_s1_socket;
+	int cl_s1_socket, s1_s2_socket ;
 	char cl_recv_file_name[1024];
 	char op_encr_norm2_file_name[1024];
+	char op_encr_dec_bits_file_name[1024];
+	char v_file_name[1024];
 	char *public_key_file_name = NULL;
 	char working_dir[1024];
 	long m, p;
+	long max_no_bits = 0;
 
 
 	if ( argc != 3 )
@@ -195,15 +243,100 @@ int main(int argc, char const *argv[])
 	init();
 	if ( (err = compute_encr_norm2(m, p, cl_recv_file_name, op_encr_norm2_file_name)) != 0 )
 	{
-		fprintf(stderr, "%s:%d:: ERROR! return:%d\n", __func__, err);
-		return -3;
+		fprintf(stderr, "%s:%d:: ERROR! return:%d\n", __func__, __LINE__, err);
+		goto clean_up;
 	}
 	printf("[%s] Computed norm 2!\n", argv[0]);
 
+	if ( (err = get_n_size_in_bits(&max_no_bits)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! return:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
 
+	printf("[%s] Max. no. of bits (based on n): %ld!\n", argv[0], max_no_bits);
+
+	//Open connection to S2
+	if ((s1_s2_socket = create_connect_socket_client(S2_HOSTNAME, S1_TO_S2_PORT_NO )) < 0)
+	{
+		fprintf(stderr, "%s:%d:: ERROR! returned:%d", __func__, __LINE__, s1_s2_socket);
+		err = -3;
+		goto clean_up;
+	}
+	printf("[%s] Established the connection with server S2!\n", argv[0]);
+	
+	//printf("[%s] Calling append to store encr. dec. bits", argv[0]);//dbg
+	//Run the SBD on the program
+	memset(op_encr_dec_bits_file_name, 0, sizeof(op_encr_dec_bits_file_name));
+	//printf("[%s] Calling append to store encr. dec. bits", argv[0]);//dbg
+	strcpy(op_encr_dec_bits_file_name, working_dir);
+
+	//printf("[%s] Calling append to store encr. dec. bits", argv[0]);//dbg
+	if ( (err = append_file_name_to_directory(op_encr_dec_bits_file_name, sizeof(op_encr_dec_bits_file_name), ENCR_DEC_BITS_FNAME)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! appending err:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+	//debug - start
+	mpz_t temp;
+	srand(time(NULL));
+	int val = ((int)rand()) % 128;
+	//mpz_init_set_ui(temp, 31);
+	encrypt(temp, val);
+	printf("[%s] Calling sbd for e_x:%d rev. bin.: ", argv[0], val);//dbg
+	if ((err = sbd(op_encr_dec_bits_file_name, /*op_encr_norm2_file_name*/temp, max_no_bits, s1_s2_socket)) != 0)
+	{
+		fprintf(stderr, "%s:%d:: ERROR! returned:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+	printf("[%s] SBD executed successfully!\n", argv[0]);//dbg
+
+	//call the function to reverse the encr. bit order in file
+	if ( (err = reverse_file_line_by_line(op_encr_dec_bits_file_name, working_dir)) !=0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! returned:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+	printf("[%s] Reversed the dec. bit encr. successfully!\n", argv[0]);//dbg
+	//Now generate v
+	long v = rand() % 128;//TODO: remove mod
+	if ( v < 0 )
+	{
+		v = v * (-1);
+	}
+	printf("[%s] For sc_optimized(), v:%ld!\n", argv[0], v);//dbg
+	
+	//Decompose v in bits in the file, ordering is lsb first
+	memset(v_file_name, 0, sizeof(v_file_name));
+	strcpy(v_file_name, working_dir);
+	if ( (err = append_file_name_to_directory(v_file_name, sizeof(v_file_name), V_FNAME)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! appending err:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+
+	if ( (err = convert_to_bin_write_to_file(max_no_bits, v, v_file_name)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! converting v:%ld, err:%d\n", __func__, __LINE__, v, err);
+		goto clean_up;
+	}
+	printf("[%s] v's binary decomposition performed successfully, v:%ld!\n", argv[0], v);//dbg
+
+	//call the function to reverse the bit order in file to MSB first
+	if ( (err = reverse_file_line_by_line(v_file_name, working_dir)) !=0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! returned:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+	printf("[%s] Reversed the dec. bit successfully!\n", argv[0]);//dbg
+	//debug - stop
 
 clean_up:
 	clear();
+	if ( temp )
+	{
+		mpz_clear(temp);
+	}
 	if ( cl_s1_socket )
 	{
 //		(shutdown(cl_s1_socket, SHUT_RDWR)==-1)?

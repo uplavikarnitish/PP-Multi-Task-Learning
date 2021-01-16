@@ -176,7 +176,8 @@ int get_file_size( long *file_size, char *file_name)
 	int err = 0;
 	FILE *fp = NULL;
 	char *buf = NULL;
-	long bytes_read;
+	long bytes_read = 0;
+	*file_size = 0;
 	if ( (fp = fopen(file_name, "rb")) == NULL)
 	{
 		fprintf(stderr, "%s:%d:: ERROR! Cannot open file! socket:%d, file_name:%s\n", __func__, __LINE__, socket, file_name);
@@ -191,18 +192,18 @@ int get_file_size( long *file_size, char *file_name)
 	}
 	while ( (bytes_read = fread(buf, 1, MAX_SEND, fp)) != 0 )
 	{
-		printf("Bytes read:%lu\n", bytes_read);//dbg
+		//printf("Bytes read:%lu\n", bytes_read);//dbg
 		*file_size += bytes_read;
 	}
-	if ( feof(fp) )
-	{
-		printf("End of file reached!\n");
-	}
-	else
-	{
-		printf("End of file NOT reached!\n");
-	}
-	printf("Bytes read(last unsuccessfull attempt):%lu\n", bytes_read);//dbg
+//	if ( feof(fp) )
+//	{
+//		printf("End of file reached!\n");
+//	}
+//	else
+//	{
+//		printf("End of file NOT reached!\n");
+//	}
+//	printf("Bytes read(last unsuccessfull attempt):%lu\n", bytes_read);//dbg
 
 	err = 0;
 clean_up:
