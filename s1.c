@@ -436,12 +436,12 @@ int main(int argc, char const *argv[])
 	printf("[%s] Computed norm 2!\n", argv[0]);
 
 	//TODO: Remove auto calculation of max_no_bits from n
-	if ( (err = get_n_size_in_bits(&max_no_bits)) != 0 )
-	{
-		fprintf(stderr, "%s:%d:: ERROR! return:%d\n", __func__, __LINE__, err);
-		goto clean_up;
-	}
-	//max_no_bits = 20;//TODO: make this as a parameter
+	//if ( (err = get_n_size_in_bits(&max_no_bits)) != 0 )
+	//{
+	//	fprintf(stderr, "%s:%d:: ERROR! return:%d\n", __func__, __LINE__, err);
+	//	goto clean_up;
+	//}
+	max_no_bits = 20;//TODO: make this as a parameter
 
 	printf("[%s] Max. no. of bits (based on n): %ld!\n", argv[0], max_no_bits);
 

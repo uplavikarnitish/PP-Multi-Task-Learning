@@ -2461,7 +2461,6 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 			//debug - stop - check if there is a 0 or 1 for L_i
 			
 		}
-		#if 0
 		//close the file to send
 		fclose(fp_l);
 		fp_l = NULL;
@@ -2487,7 +2486,6 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 			goto clean_up;
 		}
 
-		#endif
 
 		//fprintf(stderr, "%s:%d HERE!\n", __func__, __LINE__);
 
@@ -2496,7 +2494,6 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 	{
 		//s2
 
-#if 0
 
 		mpz_init(e_alpha);
 		if ( (err = append_file_name_to_directory(l_prime_full_file_name, sizeof(l_prime_full_file_name), L_PRIME_RECVD_F_NAME)) != 0 )
@@ -2525,7 +2522,6 @@ int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name,
 
 		
 		printf("[./s2] max_no_bits:%ld\n", max_no_bits);
-		#endif
 
 	}
 	err = 0;
