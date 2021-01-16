@@ -18,6 +18,11 @@
 #define MAX_SEND (MAX_MTU - MAX_OVERHEAD)
 #define PORT 8080
 
+typedef enum _serv_types{
+	ENC_LSB,
+	TERMINATE
+}serv_types;
+
 int create_connect_socket_client(char *ip_str, int port_no)
 {
 	struct sockaddr_in serv_addr;
@@ -137,7 +142,7 @@ int recv_long(int socket, long *op_val)
 	long bytes_recvd = -1;
 	if ( (bytes_recvd = read(socket, op_val, sizeof(*op_val))) == 0 )
 	{
-		fprintf(stderr, "%s:%d ERROR! Receiving value! bytes_recvd:%ld, expected:%ld, errno:%d", __func__, __LINE__, bytes_recvd, sizeof(*op_val), errno);
+		fprintf(stderr, "%s:%d ERROR! Receiving value! bytes_recvd:%ld, expected:%ld, errno:%d\n", __func__, __LINE__, bytes_recvd, sizeof(*op_val), errno);
 		return -1;
 	}
 
@@ -368,5 +373,35 @@ cleanup:
 	{
 		free(buf);
 	}
+	return err;
+}
+
+int accept_service_reqs(long *serv_type, int socket)
+{
+	int err = 0;
+	
+	if ( (err = recv_long(socket, serv_type)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! err=%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+
+	err = 0;
+clean_up:
+	return err;
+}
+
+int send_service_reqs(int socket, serv_types serv_req)
+{
+	int err = 0;
+	
+	if ( (err = send_long(socket, ((long)serv_req))) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! err=%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
+
+	err = 0;
+clean_up:
 	return err;
 }

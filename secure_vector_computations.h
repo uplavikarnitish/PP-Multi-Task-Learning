@@ -13,6 +13,7 @@
 //#include <jni.h>
 //#include "preprocess_EncryptNativeC.h"
 #include "gen_vectors.h"
+#include "comm.h"
 
 
 #define VSIZE 10
@@ -20,6 +21,11 @@
 #define KEY_SIZE_BASE10 2*KEY_SIZE_BINARY*log10(2)
 #define BIG_NUM_SZ KEY_SIZE_BASE10*sizeof(char)
 #define J_DOUBLE_SZ_BYTES 2048
+#define MAX_DIGITS_IN_NO KEY_SIZE_BINARY*4
+#define ALICE_ROLE 0
+#define BOB_ROLE 1
+typedef enum _roles{ALICE, BOB}roles;
+
 //global encrypt-decryption variables
 mpz_t big_temp;
 mpz_t n;
@@ -1832,6 +1838,86 @@ double decrypt_sim_score(const char * input_encr_prod_file_name, const char * ou
 	return val;
 	
 }
+
+int get_n_size_in_bits(long *n_bit_sz)
+{
+	char *n_in_str = NULL;
+	
+	n_in_str = malloc(MAX_DIGITS_IN_NO);
+	if ( n_in_str == NULL )
+	{
+		return -1;
+	}
+
+	*n_bit_sz = gmp_sprintf(n_in_str, "%Zd", n);
+	free(n_in_str);
+	*n_bit_sz = ((double)((*n_bit_sz)))/((double)log10(2));
+	(*n_bit_sz)++;
+	return 0;
+}
+
+/*
+Alice role = 0,
+Bob role = 1
+*/
+int encrypted_lsb( mpz_t e_x_i, mpz_t T, long i, roles role )
+{
+	if ( role == ALICE )
+	{
+	}
+	else if ( role == BOB )
+	{}
+	else
+	{
+		fprintf(stderr, "%s:%d:: ERROR! Invalid role provided role:%d, expected"
+		" ALICE:%d or BOB:%d\n", __func__, __LINE__, role, ALICE, BOB);
+		return -1;
+	}
+}
+
+int sbd( char *op_encr_dec_bits_file_name, mpz_t e_x, long m/*max. no. of bits*/, int socket )
+{
+	int err = 0;
+	long i;
+	mpz_t l;
+	mpz_t T;
+
+	//1: calculate 2^{-1}mod N
+	mpz_init_set_ui(l, 2);
+	mpz_invert(l, l, n);
+	//2: initialize T
+	mpz_init_set(T, e_x);
+
+	if ( (err = send_service_reqs(socket, ENC_LSB)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! Cannot send service req.s! err = %d\n", err);
+		goto clean_up;
+	}
+
+	if ( (err = send_service_reqs(socket, TERMINATE)) != 0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! Cannot send service req.s! err = %d\n", err);
+		goto clean_up;
+	}
+	//for ( i=0; i<m; i++ )
+	//{
+	//	
+	//}
+	
+
+	
+clean_up:
+	if ( l )
+	{
+		mpz_clear(l);
+	}
+	if ( T )
+	{
+		mpz_clear(T);
+	}
+}
+
+
 #if 0
 
 	JNIEXPORT jint JNICALL Java_preprocess_EncryptNativeC_encrypt_1vec_1to_1file
