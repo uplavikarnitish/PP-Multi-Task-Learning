@@ -18,24 +18,16 @@ int ppmtl_mpz_prod_paillier(mpz_t rop, const mpz_t op1, const mpz_t op2)
 
 int compute_encr_norm2(long m, long p, char *cl_recv_file_name, char *op_encr_norm2_file_name)
 {
-	FILE *fp, *fp_out;
-	int err = 0, last_elem_1D_indx = 0;
+	FILE *fp;
+	int err = 0;
 	long count = 0;
 	mpz_t m_val;
 	mpz_t norm2;
-	char *delimiter;
 
 	if ( (fp = fopen(cl_recv_file_name, "r")) == NULL )
 	{
 		fprintf(stderr, "%s:%d:: ERROR! Cannot open file:%s\n", __func__, __LINE__, cl_recv_file_name);
 		err = -1;
-		goto clean_up;
-	}
-
-	if ( (fp_out = fopen(op_encr_norm2_file_name, "w")) == NULL )
-	{
-		fprintf(stderr, "%s:%d:: ERROR! Cannot open file:%s\n", __func__, __LINE__, op_encr_norm2_file_name);
-		err = -2;
 		goto clean_up;
 	}
 
@@ -46,7 +38,6 @@ int compute_encr_norm2(long m, long p, char *cl_recv_file_name, char *op_encr_no
 	//it is arranged as p x m, where, p - no. of features/rows and
 	//m - no. of clients/columns.
 	count = 0;
-	last_elem_1D_indx = (m * p) - 1;
 	while ( ( err = gmp_fscanf(fp, "%Zd,", m_val))!=0/*Something parsed*/ && (err != EOF) )
 	{
 		//gmp_printf("%d>\tValue parsed:%Zd\n", count++, m_val);//debug
@@ -67,28 +58,8 @@ int compute_encr_norm2(long m, long p, char *cl_recv_file_name, char *op_encr_no
 			//row. Dump this to the output file provided.
 			//Align each norm2 on a new row, as row corresponds
 			//to features and we have p features and hence,
-			//p norm 2s, i.e. avoid comma as delimiter and use
-			//newline '\n'.
-			if ( count != last_elem_1D_indx )
-			{
-				//no delimiter after the last norm2 in the 
-				//file.
-				delimiter = "\n";
-			}
-			else
-			{
-				delimiter = "";
-			}
-			if( (err = gmp_fprintf(fp_out, "%Zd%s", norm2, delimiter)) < 0  )
-			{
-				fprintf(stderr, "%s:%d:: Cannot write to file:%s\n", __func__, __LINE__, op_encr_norm2_file_name);
-				goto clean_up;
-			}
-			//debug - start
-			//gmp_printf("%d\t> E(norm2):%Zd\n", (count/m), norm2);
-			//decrypt(norm2);
-			//gmp_printf("%d\t> norm2:%Zd\n\n", (count/m), norm2);
-			//debug - end
+			//p norm 2s, i.e. avoid comma as delimiter and use newline
+			//'\n'.
 		}
 		
 		count++;
@@ -99,10 +70,6 @@ clean_up:
 	if ( fp )
 	{
 		fclose(fp);
-	}
-	if ( fp_out )
-	{
-		fclose(fp_out);
 	}
 	if ( m_val )
 	{
