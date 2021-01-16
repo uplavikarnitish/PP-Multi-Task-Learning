@@ -160,6 +160,193 @@ clean_up:
 	}
 	return err;
 }
+
+//int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name, long max_no_bits, roles role)
+//{
+//	int err = 0;
+//	FILE *fp_u, *fp_v;
+//	long i;
+//	mpz_t u_i;
+//	mpz_t e_0;
+//	mpz_t e_1;
+//	mpz_t W_i;
+//	mpz_t G_i;
+//	mpz_t temp;
+//	mpz_t H_i;
+//	mpz_t H_i_1;
+//	
+//
+//	if ( role == BOB )
+//	{
+//		long v_i;
+//
+//		mpz_init(u_i);
+//		mpz_init(e_0);
+//		mpz_init(e_1);
+//		mpz_init(W_i);
+//		mpz_init(G_i);
+//		mpz_init(temp);
+//		mpz_init(H_i);
+//		mpz_init(H_i_1);
+//		//s1
+//		if ( (fp_u = fopen(ip_encr_dec_bits_file_name, "r"))==NULL )
+//		{
+//			fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file:%s!", __func__, __LINE__, ip_encr_dec_bits_file_name);
+//			err = -1;
+//			goto clean_up;
+//		}
+//
+//		if ( (fp_v = fopen(v_file_name, "r"))==NULL )
+//		{
+//			fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file:%s!", __func__, __LINE__, v_file_name);
+//			err = -2;
+//			goto clean_up;
+//		}
+//
+//		//1.1. Randomly choose F from {0, 1}
+//		srand(time(NULL));
+//		int F = ((int)rand()) % 2;
+//		printf("[./s0] F:%d\n", F);//dbg
+//
+//		//1.2
+//		for ( i = 1; i <= max_no_bits; i++ )
+//		{
+//			//read [u_i]
+//			if ( (err = gmp_fscanf(fp_u, "%Zd\n", u_i)) <= 0 )
+//			{
+//				fprintf(stderr, "%s:%d:: ERROR!!! Cannot read file:%s! i:%ld, err:%d, errno:%d", __func__, __LINE__, ip_encr_dec_bits_file_name, i, err, errno);
+//				goto clean_up;
+//			}
+//			//read v_i
+//			if ( (err = fscanf(fp_v, "%d\n", &v_i)) <= 0 )
+//			{
+//				fprintf(stderr, "%s:%d:: ERROR!!! Cannot read file:%s! i:%ld, err:%d, errno:%d", __func__, __LINE__, v_file_name, i, err, errno);
+//				goto clean_up;
+//			}
+//			//debug - start
+//			//if ( (i==1) || (i==(max_no_bits-1)) || (i==max_no_bits) )
+//			//{
+//			//	gmp_printf("%Zd\n%d\n\n", u_i, v_i);
+//			//}
+//			//debug - stop
+//			
+//			//1.2.a
+//			if (v_i == 0)
+//			{
+//				//1.2.a.i - TODO remove E_{pu}(u_i * v_i) <- E_{pu}(0) reference from paper
+//				//1.2.a.ii.
+//				if ( F == 0 )
+//				{
+//					//1.2.a.ii.A.
+//					mpz_set(W_i, u_i);
+//				}
+//				else
+//				{
+//					//1.2.a.iii.A
+//					//compute W_i<-E(0)
+//					encrypt(W_i, 0);
+//				}
+//				//1.2.a.iv.
+//				mpz_set(G_i, u_i);
+//			}
+//			else
+//			{
+//				//v_i == 1
+//				if ( F == 0 )
+//				{
+//					//1.2.b.ii.A.
+//					//W_i <- E(0)
+//					encrypt(W_i, 0);
+//				}
+//				else
+//				{
+//					//1.2.b.iii.A
+//					//compute W_i<-E(1)*E(u_i)^{N-1}
+//					//compute temp<-inv(u_i)
+//					mpz_powm(temp, u_i, n_minus_1, n_square);
+//					//compute E(1)
+//					encrypt(e_1, 1);
+//					//compute W_i
+//					prod_cipher_paillier(W_i, e_1, temp);//mod n_square taken care of
+//				}
+//				//1.2.b.iv.
+//				//compute G_i
+//				//get E(1)
+//				encrypt(e_1, 1);
+//				//compute temp<-inv(u_i)
+//				mpz_powm(temp, u_i, n_minus_1, n_square);
+//				//compute G_i
+//				prod_cipher_paillier(W_i, e_1, temp);//mod n_square taken care of
+//			}
+//			//1.2.c. Compute H_i
+//			if ( i == 1 )
+//			{
+//				//H_0 == E(0)
+//				encrypt(H_i_1, 0);
+//			}
+//
+//
+//			
+//		}
+//
+//	}
+//	else if ( role == ALICE )
+//	{
+//		//s2
+//	}
+//	err = 0;
+//clean_up:
+//
+//	if ( role == BOB )
+//	{
+//		if ( u_i )
+//		{
+//			mpz_clear(u_i);
+//		}
+//		if ( e_0 )
+//		{
+//			mpz_clear(e_0);
+//		}
+//		if ( e_1 )
+//		{
+//			mpz_clear(e_1);
+//		}
+//		if ( W_i )
+//		{
+//			mpz_clear(W_i);
+//		}
+//		if ( G_i )
+//		{
+//			mpz_clear(G_i);
+//		}
+//		if ( H_i )
+//		{
+//			mpz_clear(H_i);
+//		}
+//		if ( H_i_1 )
+//		{
+//			mpz_clear(H_i_1);
+//		}
+//		if ( temp )
+//		{
+//			mpz_clear(temp);
+//		}
+//		if ( fp_u )
+//		{
+//			fclose(fp_u);
+//		}
+//		if ( fp_v )
+//		{
+//			fclose(fp_v);
+//		}
+//	}
+//	else if ( role == ALICE )
+//	{
+//		
+//	}
+//	return err;
+//}
+
 int main(int argc, char const *argv[])
 {
 	int /*server_fd,*/ valread, err = 0;
@@ -329,6 +516,14 @@ int main(int argc, char const *argv[])
 		goto clean_up;
 	}
 	printf("[%s] Reversed the dec. bit successfully!\n", argv[0]);//dbg
+	
+	mpz_t e_s;
+	mpz_init(e_s);
+	if ( (err = sc_optimized(e_s, op_encr_dec_bits_file_name, v_file_name, max_no_bits, BOB))!=0 )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! sc_optimized(), err:%d\n", __func__, __LINE__, err);
+		goto clean_up;
+	}
 	//debug - stop
 
 clean_up:
@@ -336,6 +531,10 @@ clean_up:
 	if ( temp )
 	{
 		mpz_clear(temp);
+	}
+	if ( e_s )
+	{
+		mpz_clear(e_s);
 	}
 	if ( cl_s1_socket )
 	{

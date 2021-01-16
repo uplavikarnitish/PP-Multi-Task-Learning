@@ -24,6 +24,8 @@
 #define MAX_DIGITS_IN_NO KEY_SIZE_BINARY*4
 #define ALICE_ROLE 0
 #define BOB_ROLE 1
+#define	L_PRIME_F_NAME = "L_prime.dat"
+#define	L_PRIME_RECVD_F_NAME = "L_prime_recvd.dat"
 typedef enum _roles{ALICE, BOB}roles;
 
 //Use this when storing mpz's value in string with base 10 form, instead
@@ -91,6 +93,19 @@ int prod_cipher_paillier(mpz_t rop, const mpz_t op1, const mpz_t op2)
 	mpz_mul(rop, op1, op2);
 	mpz_mod(rop, rop, n_square);
 }
+
+int append_file_name_to_directory( char *dir, int dir_sz, char *fname )
+{
+	if ( dir == NULL || fname == NULL )
+	{
+		fprintf(stderr, "%s:%d:: ERROR! BAD ARGS PASSED!\n", __func__, __LINE__);
+		return -1;
+	}
+	strncat(dir, "/", dir_sz - 1);
+	strncat(dir, fname, dir_sz - 1);
+	return 0;
+}
+
 int encrypt_vec_to_file( int vsizelocal, const char * input_file_name, const char * output_file_name, const char * key_file_name)
 {
 	int input_size = 0, i, temp;
@@ -2147,6 +2162,241 @@ clean_up:
 	return err;
 }
 
+int sc_optimized(mpz_t e_s, char *ip_encr_dec_bits_file_name, char *v_file_name, long max_no_bits, char *working_dir, int socket, roles role)
+{
+	int err = 0;
+	FILE *fp_u, *fp_v;
+	long i;
+	char *l_prime_file_name;
+	char l_prime_full_file_name[1024];
+	mpz_t u_i;
+	mpz_t e_0;
+	mpz_t e_1;
+	mpz_t W_i;
+	mpz_t G_i;
+	mpz_t temp;
+	mpz_t H_i;
+	mpz_t H_i_1;
+	mpz_t K_i;
+	mpz_t L_i;
+	
+
+	memset(l_prime_full_file_name, 0, sizeof(l_prime_full_file_name));
+	strcpy(l_prime_full_file_name, working_dir);
+
+	if ( role == BOB )
+	{
+		long v_i;
+		
+		if ( (err = append_file_name_to_directory(l_prime_full_file_name, sizeof(l_prime_full_file_name), L_PRIME_F_NAME)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! appending err:%d\n", __func__, __LINE__, err);
+			goto clean_up;
+		}
+		mpz_init(u_i);
+		mpz_init(e_0);
+		mpz_init(e_1);
+		mpz_init(W_i);
+		mpz_init(G_i);
+		mpz_init(temp);
+		mpz_init(H_i);
+		mpz_init(H_i_1);
+		mpz_init(K_i);
+		//s1
+		if ( (fp_u = fopen(ip_encr_dec_bits_file_name, "r"))==NULL )
+		{
+			fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file:%s!", __func__, __LINE__, ip_encr_dec_bits_file_name);
+			err = -1;
+			goto clean_up;
+		}
+
+		if ( (fp_v = fopen(v_file_name, "r"))==NULL )
+		{
+			fprintf(stderr, "%s:%d:: ERROR!!! Cannot open file:%s!", __func__, __LINE__, v_file_name);
+			err = -2;
+			goto clean_up;
+		}
+
+		//1.1. Randomly choose F from {0, 1}
+		srand(time(NULL));
+		int F = ((int)rand()) % 2;
+		printf("[./s0] F:%d\n", F);//dbg
+
+		//1.2
+		for ( i = 1; i <= max_no_bits; i++ )
+		{
+			//read [u_i]
+			if ( (err = gmp_fscanf(fp_u, "%Zd\n", u_i)) <= 0 )
+			{
+				fprintf(stderr, "%s:%d:: ERROR!!! Cannot read file:%s! i:%ld, err:%d, errno:%d", __func__, __LINE__, ip_encr_dec_bits_file_name, i, err, errno);
+				goto clean_up;
+			}
+			//read v_i
+			if ( (err = fscanf(fp_v, "%d\n", &v_i)) <= 0 )
+			{
+				fprintf(stderr, "%s:%d:: ERROR!!! Cannot read file:%s! i:%ld, err:%d, errno:%d", __func__, __LINE__, v_file_name, i, err, errno);
+				goto clean_up;
+			}
+			//debug - start
+			//if ( (i==1) || (i==(max_no_bits-1)) || (i==max_no_bits) )
+			//{
+			//	gmp_printf("%Zd\n%d\n\n", u_i, v_i);
+			//}
+			//debug - stop
+			
+			//1.2.a
+			if (v_i == 0)
+			{
+				//1.2.a.i - TODO remove E_{pu}(u_i * v_i) <- E_{pu}(0) reference from paper
+				//1.2.a.ii.
+				if ( F == 0 )
+				{
+					//1.2.a.ii.A.
+					mpz_set(W_i, u_i);
+				}
+				else
+				{
+					//1.2.a.iii.A
+					//compute W_i<-E(0)
+					encrypt(W_i, 0);
+				}
+				//1.2.a.iv.
+				mpz_set(G_i, u_i);
+			}
+			else
+			{
+				//v_i == 1
+				if ( F == 0 )
+				{
+					//1.2.b.ii.A.
+					//W_i <- E(0)
+					encrypt(W_i, 0);
+				}
+				else
+				{
+					//1.2.b.iii.A
+					//compute W_i<-E(1)*E(u_i)^{N-1}
+					//compute temp<-inv(u_i)
+					mpz_powm(temp, u_i, n_minus_1, n_square);
+					//compute E(1)
+					encrypt(e_1, 1);
+					//compute W_i
+					prod_cipher_paillier(W_i, e_1, temp);//mod n_square taken care of
+				}
+				//1.2.b.iv.
+				//compute G_i
+				//get E(1)
+				encrypt(e_1, 1);
+				//compute temp<-inv(u_i)
+				mpz_powm(temp, u_i, n_minus_1, n_square);
+				//compute G_i
+				prod_cipher_paillier(G_i, e_1, temp);//mod n_square taken care of
+			}
+
+			//1.2.c. Compute H_i
+			if ( i == 1 )
+			{
+				//H_0 == E(0)
+				encrypt(H_i_1, 0);
+			}
+			//r<-random in Z_n
+			get_random_r();
+			//comp H_i <- H_i_1^r
+			mpz_powm(H_i, H_i_1, r, n_square);
+			//comp H_i <- H_i_1^r * G_i
+			prod_cipher_paillier(H_i, H_i, G_i);
+			//compute H_i_1 as H_i for next iteration
+			mpz_set(H_i_1, H_i);
+
+			//1.2.d. 
+			//compute temp <- -1
+			mpz_set_si(temp, -1);//NOTE TODO: note the si i.e. signed int and not ui i.e. unsigned int
+			//compute temp <- -1 mod n i.e. -1 in Z_n
+			mpz_mod(temp, temp, n);
+			//compute temp <- E(-1)
+			encrypt_big_num(temp, temp);
+			//compute kappa_i <- E(-1)*H_i
+			prod_cipher_paillier(K_i, temp, H_i);//mod n^2 handled by func.
+
+			//1.2.e.
+			//compute L_i
+			prod_cipher_paillier(L_i, W_i, K_i);//mod n^2 handled by func.
+
+
+
+			
+		}
+
+	}
+	else if ( role == ALICE )
+	{
+		//s2
+		if ( (err = append_file_name_to_directory(l_prime_full_file_name, sizeof(l_prime_full_file_name), L_PRIME_RECVD_F_NAME)) != 0 )
+		{
+			fprintf(stderr, "%s:%d:: ERROR! appending err:%d\n", __func__, __LINE__, err);
+			goto clean_up;
+		}
+	}
+	err = 0;
+clean_up:
+
+	if ( role == BOB )
+	{
+		if ( u_i )
+		{
+			mpz_clear(u_i);
+		}
+		if ( e_0 )
+		{
+			mpz_clear(e_0);
+		}
+		if ( e_1 )
+		{
+			mpz_clear(e_1);
+		}
+		if ( W_i )
+		{
+			mpz_clear(W_i);
+		}
+		if ( G_i )
+		{
+			mpz_clear(G_i);
+		}
+		if ( H_i )
+		{
+			mpz_clear(H_i);
+		}
+		if ( H_i_1 )
+		{
+			mpz_clear(H_i_1);
+		}
+		if ( K_i )
+		{
+			mpz_clear(K_i);
+		}
+		if ( L_i )
+		{
+			mpz_clear(L_i);
+		}
+		if ( temp )
+		{
+			mpz_clear(temp);
+		}
+		if ( fp_u )
+		{
+			fclose(fp_u);
+		}
+		if ( fp_v )
+		{
+			fclose(fp_v);
+		}
+	}
+	else if ( role == ALICE )
+	{
+		
+	}
+	return err;
+}
 /*
 Alice role = 0,
 Bob role = 1
